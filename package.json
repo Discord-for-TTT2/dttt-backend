@@ -1,11 +1,12 @@
 {
   "name": "dttt-backend",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "main": "index.js",
   "license": "MIT",
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.10",
+    "esbuild": "^0.24.2",
     "nodemon": "^3.1.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"

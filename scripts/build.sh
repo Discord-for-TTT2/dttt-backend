@@ -5,7 +5,7 @@ function quit {
 echo "Requesting to delete dist/ directory..."
 rm -rI dist/ # clean dist folder
 
-node scripts/build_preload.js && tsc -p . && cp scripts/start.sh dist/ && chmod +x dist/start.sh
+node scripts/build_preload.js && npx esbuild ./src --outfile=dist/index.js --bundle --platform=node && cp scripts/start.sh dist/ && chmod +x dist/start.sh
 
 if [[ $? -eq 0 ]]; then
     echo "Typescript compilation successful"
