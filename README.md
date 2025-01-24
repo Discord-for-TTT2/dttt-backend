@@ -7,7 +7,7 @@
 ## Installation
 
 1. Download zipped release
-   https://github.com/vertiKarl/dttt-backend/releases
+   https://github.com/Discord-for-TTT2/dttt-backend/releases
 
 2. Unzip in your preferred folder
    unzip dttt-backend.zip
