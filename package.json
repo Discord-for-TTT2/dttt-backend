@@ -14,7 +14,8 @@
   "scripts": {
     "start": "dist/start.sh",
     "dev": "scripts/dev.sh",
-    "build": "scripts/build.sh"
+    "build": "scripts/build.sh",
+    "compress": "scripts/compress.sh"
   },
   "dependencies": {
     "@tsconfig/recommended": "^1.0.8",
