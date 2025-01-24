@@ -1,0 +1,23 @@
+{
+  "name": "dttt-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.10",
+    "nodemon": "^3.1.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "scripts": {
+    "start": "dist/start.sh",
+    "dev": "scripts/dev.sh",
+    "build": "scripts/build.sh"
+  },
+  "dependencies": {
+    "@tsconfig/recommended": "^1.0.8",
+    "discord.js": "^14.17.3",
+    "express": "^4.21.2"
+  }
+}

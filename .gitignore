@@ -1,0 +1,11 @@
+node_modules/
+dist/
+config.json
+Songs/*
+Clips/*
+tokens.json
+latest.log
+version.ts
+*.service
+Plugins
+Modules
