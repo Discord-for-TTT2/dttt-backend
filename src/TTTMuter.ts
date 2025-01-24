@@ -245,15 +245,14 @@ export default class TTTMuter extends Logger {
 
       const { id, status } = body;
 
-      for (let i = 0; i < id.length; i++) {
-        if (isNaN(Number(id[i]))) {
-          res.status(400).end();
-          this.warn("Invalid request received");
-          return;
-        }
-      }
-
       if (id && status) {
+        for (let i = 0; i < id.length; i++) {
+          if (isNaN(Number(id[i]))) {
+            res.status(400).end();
+            this.warn("Invalid request received");
+            return;
+          }
+        }
         try {
           const member = await this.guild!.members.fetch(id);
           await member.voice.setMute(
