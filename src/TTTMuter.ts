@@ -85,7 +85,8 @@ export default class TTTMuter extends Logger {
       this.settings.DTTT_API_KEY.length > 5 &&
       this.settings.GUILD_ID.length > 5 &&
       this.settings.PORT > 0 &&
-      this.settings.DISCORD_TOKEN.length > 5
+      this.settings.DISCORD_TOKEN.length > 5 &&
+      typeof this.settings.ENABLE_LEGACY_BACKEND === "boolean"
     );
   }
 
@@ -120,7 +121,9 @@ export default class TTTMuter extends Logger {
 
   async execute() {
     if (!this.settings || !this.checkSettings()) {
-      this.error("Please fill out the config.json!");
+      this.error(
+        "\nPlease fill out the config.json!\nIf this error persists, try deleting config.json and let it regenerate."
+      );
       return;
     }
 
