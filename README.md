@@ -23,12 +23,12 @@
 
 `git clone https://github.com/vertiKarl/dttt-backend.git`
 
-**Then enter the created directory:**
+**Then enter the created directory:**  
 
-`cd dttt-backend`
+`cd dttt-backend`  
 
-**Initialize the project:**
-`yarn install`
+**Initialize the project:**  
+`yarn install`  
 
 ## Usage
 
