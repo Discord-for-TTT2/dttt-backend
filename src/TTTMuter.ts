@@ -234,7 +234,7 @@ export default class TTTMuter extends Logger {
     });
 
     this.app.post("/mute", async (req, res, next) => {
-      let body: MuteRequest;
+      let body: MuteRequest | MuteRequest[];
       try {
         body = req.body;
       } catch (err) {
@@ -243,35 +243,39 @@ export default class TTTMuter extends Logger {
         return;
       }
 
-      const { id, status } = body;
+      if (!Array.isArray(body)) {
+        body = [body];
+      }
 
-      if (id && status) {
-        for (let i = 0; i < id.length; i++) {
-          if (isNaN(Number(id[i]))) {
-            res.status(400).end();
-            this.warn("Invalid request received");
+      body.forEach(async ({ id, status }) => {
+        if (id && typeof status === "boolean") {
+          for (let i = 0; i < id.length; i++) {
+            if (isNaN(Number(id[i]))) {
+              res.status(400).end();
+              this.warn("Invalid request received");
+              return;
+            }
+          }
+          try {
+            const member = await this.guild!.members.fetch(id);
+            await member.voice.setMute(
+              status,
+              status ? "dead players can't talk!" : undefined
+            );
+          } catch (err) {
+            res.status(500).end();
+            this.error("Couldn't resolve id", id);
             return;
           }
-        }
-        try {
-          const member = await this.guild!.members.fetch(id);
-          await member.voice.setMute(
-            status,
-            status ? "dead players can't talk!" : undefined
-          );
-        } catch (err) {
-          res.status(500).end();
-          this.error("Couldn't resolve id", id);
+        } else {
+          this.error("Invalid request");
+          res.status(400).end();
           return;
         }
-        res.status(200).json({ success: true });
-        this.log(`[Success]`, `${status ? "Muted" : "Unmuted"} ${id}`);
-        return;
-      } else {
-        this.error("Invalid request");
-        res.status(400).end();
-        return;
-      }
+      });
+      res.status(200).json({ success: true }).end();
+      this.log(`[Success]`);
+      return;
     });
 
     if (this.settings?.ENABLE_LEGACY_BACKEND) {
