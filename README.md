@@ -6,11 +6,13 @@
 
 ## Installation
 
-1. Download zipped release
+1. Download zipped release  
    https://github.com/Discord-for-TTT2/dttt-backend/releases
 
-2. Unzip in your preferred folder
+2. Unzip in your preferred folder  
+   ```shell
    unzip dttt-backend.zip
+   ```
 
 3. Fill out the config.json with your information
 
@@ -21,21 +23,36 @@
 
 **To use this project start by cloning the repository:**
 
-`git clone https://github.com/vertiKarl/dttt-backend.git`
+```shell
+git clone https://github.com/vertiKarl/dttt-backend.git
+```
 
 **Then enter the created directory:**  
 
-`cd dttt-backend`  
+```shell
+cd dttt-backend
+```
 
 **Initialize the project:**  
-`yarn install`  
+```shell
+yarn install
+``` 
 
 ## Usage
 
 **Available scripts**
 
-Development mode: `yarn dev`
+Development mode:
+```shell
+yarn dev
+```
 
-Compile into JavaScript: `yarn build`
+Compile into JavaScript:
+```shell
+yarn build
+```
 
-Start compiled JavaScript: `yarn start`
+Start compiled JavaScript:
+```shell
+yarn start
+```
