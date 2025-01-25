@@ -245,7 +245,6 @@ export default class TTTMuter extends Logger {
 
       if (!Array.isArray(body)) {
         body = [body];
-        this.debug(body);
       }
 
       body.forEach(async ({ id, status }) => {
