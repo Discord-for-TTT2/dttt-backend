@@ -247,7 +247,7 @@ export default class TTTMuter extends Logger {
         body = [body];
       }
 
-      body.forEach(async ({ id, status }) => {
+      for (const { id, status } of body) {
         if (id && typeof status === "boolean") {
           for (let i = 0; i < id.length; i++) {
             if (isNaN(Number(id[i]))) {
@@ -272,11 +272,54 @@ export default class TTTMuter extends Logger {
           res.status(400).end();
           return;
         }
-      });
-      if (!res.writableEnded) {
-        res.status(200).json({ success: true }).end();
-        this.log(`[Success]`);
       }
+      res.status(200).json({ success: true }).end();
+      this.log(`[Success]`);
+      return;
+    });
+
+    this.app.post("/deafen", async (req, res, next) => {
+      let body: MuteRequest | MuteRequest[];
+      try {
+        body = req.body;
+      } catch (err) {
+        this.error("Couldn't parse request!", err);
+        res.status(500).end();
+        return;
+      }
+
+      if (!Array.isArray(body)) {
+        body = [body];
+      }
+
+      for (const { id, status } of body) {
+        if (id && typeof status === "boolean") {
+          for (let i = 0; i < id.length; i++) {
+            if (isNaN(Number(id[i]))) {
+              res.status(400).end();
+              this.warn("Invalid request received");
+              return;
+            }
+          }
+          try {
+            const member = await this.guild!.members.fetch(id);
+            await member.voice.setDeaf(
+              status,
+              status ? "dead players can't hear!" : undefined
+            );
+          } catch (err) {
+            res.status(500).end();
+            this.error("Couldn't resolve id", id);
+            return;
+          }
+        } else {
+          this.error("Invalid request");
+          res.status(400).end();
+          return;
+        }
+      }
+      res.status(200).json({ success: true }).end();
+      this.log(`[Success]`);
       return;
     });
 
