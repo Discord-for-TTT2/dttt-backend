@@ -7,7 +7,7 @@ import {
   PresenceData,
 } from "discord.js";
 import express, { Express } from "express";
-import Logger from "./util/Logger";
+import Logger from "@vertikarl/ts-logger";
 import fs from "fs/promises";
 import path from "path";
 import { version as VERSION } from "./version";
@@ -57,7 +57,7 @@ export default class TTTMuter extends Logger {
           SETTINGS_PATH,
           JSON.stringify(DEFAULT_SETTINGS, null, 4)
         );
-        this.log(
+        this.info(
           SETTINGS_PATH,
           "does not exist, creating... Is this your first time running this app?"
         );
@@ -136,7 +136,7 @@ export default class TTTMuter extends Logger {
     client.on("ready", () => {
       if (!client?.user) return;
 
-      this.log(`Logged in as ${client.user.tag}`);
+      this.info(`Logged in as ${client.user.tag}`);
 
       this.updateRPC();
     });
@@ -156,7 +156,7 @@ export default class TTTMuter extends Logger {
     this.routes();
 
     this.server = this.app.listen(this.settings.PORT, () => {
-      this.log(`Bot endpoint is running on port ${this.settings?.PORT}`);
+      this.info(`Bot endpoint is running on port ${this.settings?.PORT}`);
     });
   }
 
@@ -185,7 +185,7 @@ export default class TTTMuter extends Logger {
         return;
       }
 
-      this.log(
+      this.info(
         `${req.ip} tried to request but was not authorized! (${req.headers.authorization})`
       );
 
@@ -227,7 +227,7 @@ export default class TTTMuter extends Logger {
           .status(200)
           .json({ name: found.displayName, nick: found.nickname, id: found.id })
           .end();
-        this.log(
+        this.info(
           `Success matched ${found.displayName} (${found.id}) to ${nick} (${name})`
         );
       }
@@ -274,7 +274,7 @@ export default class TTTMuter extends Logger {
         }
       }
       res.status(200).json({ success: true }).end();
-      this.log(`[Success]`);
+      this.info(`[Success]`);
       return;
     });
 
@@ -319,12 +319,12 @@ export default class TTTMuter extends Logger {
         }
       }
       res.status(200).json({ success: true }).end();
-      this.log(`[Success]`);
+      this.info(`[Success]`);
       return;
     });
 
     if (this.settings?.ENABLE_LEGACY_BACKEND) {
-      this.log("Loading legacy routes");
+      this.info("Loading legacy routes");
       this.app.get("/", async (req, res, next) => {
         this.warn("Hitting legacy backend");
         let params: any | undefined;
@@ -372,7 +372,7 @@ export default class TTTMuter extends Logger {
               return;
             } else {
               res.status(200).json({ tag: found.displayName, id: found.id });
-              this.log(
+              this.info(
                 "[LegacyConnect][Success]",
                 `Connecting ${found.displayName} (${found.id})`
               );
@@ -386,12 +386,12 @@ export default class TTTMuter extends Logger {
               debugMode: this.debug,
               discordGuild: this.guild?.id,
             });
-            this.log("[LegacySync][Request]", params);
+            this.info("[LegacySync][Request]", params);
             return;
           }
           case "keep_alive": {
             res.json({ success: true });
-            this.log("[LegacyKeepAlive][Request]", params);
+            this.info("[LegacyKeepAlive][Request]", params);
             break;
           }
           case "mute": {
@@ -420,7 +420,7 @@ export default class TTTMuter extends Logger {
                 mute ? "dead players can't talk!" : undefined
               );
               res.status(200).json({ success: true });
-              this.log(
+              this.info(
                 `[LegacyMute][Discord:SetMute][Success]`,
                 `${mute ? "Muted" : "Unmuted"} ${id}`
               );

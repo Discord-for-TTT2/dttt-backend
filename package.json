@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tsconfig/recommended": "^1.0.8",
+    "@vertikarl/ts-logger": "https://github.com/vertiKarl/ts-logger",
     "discord.js": "^14.17.3",
     "express": "^4.21.2"
   }

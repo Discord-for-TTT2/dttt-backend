@@ -351,6 +351,10 @@
   dependencies:
     "@types/node" "*"
 
+"@vertikarl/ts-logger@https://github.com/vertiKarl/ts-logger":
+  version "1.0.0"
+  resolved "https://github.com/vertiKarl/ts-logger#2b234d5e625210bf36f3abc581bef65c54694c97"
+
 "@vladfrangu/async_event_emitter@^2.2.4", "@vladfrangu/async_event_emitter@^2.4.6":
   version "2.4.6"
   resolved "https://registry.yarnpkg.com/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.6.tgz#508b6c45b03f917112a9008180b308ba0e4d1805"
