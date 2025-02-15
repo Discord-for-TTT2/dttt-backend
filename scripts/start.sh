@@ -2,7 +2,7 @@
 
 OWN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-node "$OWN_DIR/index.js"
+node "$OWN_DIR/index.js" "$@"
 
 
 if [[ $? -eq 127 ]]; then

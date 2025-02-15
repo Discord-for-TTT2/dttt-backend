@@ -12,6 +12,7 @@ import fs from "fs/promises";
 import path from "path";
 import { version as VERSION } from "./version";
 import { Settings, MuteRequest } from "./types";
+import bcrypt from "bcryptjs";
 
 const SETTINGS_PATH = path.join(__dirname, "config.json");
 
@@ -44,6 +45,23 @@ export default class TTTMuter extends Logger {
     this.debug("loading settings");
     return new Promise(async (resolve, reject) => {
       let exists = true;
+      let password;
+      this.debug("ARGS", process.argv);
+      if (process.argv.length > 2 && process.argv.includes("-p")) {
+        this.debug("Trying to handle provided password with p flag");
+        const passwordProvided = process.argv.findIndex((value, index, obj) => {
+          return value === "-p";
+        });
+
+        if (passwordProvided !== -1) {
+          const passwordIndex = passwordProvided + 1;
+          if (process.argv.length > passwordIndex) {
+            password = process.argv[passwordIndex];
+            this.info("Provided password", password);
+            password = bcrypt.hashSync(password, 10);
+          }
+        }
+      }
 
       try {
         const a = await fs.stat(SETTINGS_PATH);
@@ -53,21 +71,34 @@ export default class TTTMuter extends Logger {
 
       if (!exists) {
         this.debug("writing file");
-        await fs.writeFile(
+        let settings = DEFAULT_SETTINGS;
+        this.warn(
           SETTINGS_PATH,
-          JSON.stringify(DEFAULT_SETTINGS, null, 4)
+          "does not exist, creating...\n",
+          "If this is your first time running this bot, please fill out the generated config.json file."
         );
-        this.info(
-          SETTINGS_PATH,
-          "does not exist, creating... Is this your first time running this app?"
-        );
+        if (password) {
+          settings.DTTT_API_KEY = password;
+        }
+        await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 4));
         reject();
         return;
       } else {
         this.debug("found file");
         try {
           const file = await fs.readFile(SETTINGS_PATH, "utf-8");
-          this.settings = JSON.parse(file);
+          let settings = JSON.parse(file);
+          if (password) {
+            this.warn(
+              "Password provided even though file already exists, changing password!"
+            );
+            settings.DTTT_API_KEY = password;
+            await fs.writeFile(
+              SETTINGS_PATH,
+              JSON.stringify(settings, null, 4)
+            );
+          }
+          this.settings = settings;
           resolve();
           return;
         } catch (err) {
@@ -167,7 +198,7 @@ export default class TTTMuter extends Logger {
     this.app.use(express.json({ limit: "10kb" }));
     this.app.use(express.urlencoded({ extended: true })); // support encoded bodies (required)
 
-    this.app.use("/", (req, res, next) => {
+    this.app.use("/", async (req, res, next) => {
       this.debug(`[${req.method}] ${req.path}`);
       this.debug("[HEADERS]", req.headers);
       this.debug("[BODY]", req.body);
@@ -179,7 +210,13 @@ export default class TTTMuter extends Logger {
       }
 
       if (
-        req.headers.authorization === `Basic ${this.settings?.DTTT_API_KEY}`
+        // check if the user is authenticated with either a plaintext DTTT API key or a hashed DTTT API key
+        req.headers.authorization &&
+        (req.headers.authorization === `Basic ${this.settings?.DTTT_API_KEY}` ||
+          (await bcrypt.compare(
+            req.headers.authorization.split("Basic ")[1],
+            this.settings!.DTTT_API_KEY
+          )))
       ) {
         next();
         return;
