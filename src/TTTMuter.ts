@@ -236,7 +236,7 @@ export default class TTTMuter extends Logger {
     });
 
     this.app.get("/id", (req, res, next) => {
-      const { name, nick } = req.query;
+      let { name, nick } = req.query;
 
       if (typeof name !== "string" || typeof nick !== "string") {
         res.status(400).end();
@@ -244,28 +244,33 @@ export default class TTTMuter extends Logger {
         return;
       }
 
-      const found = this.guild!.members.cache.find(
-        (member) =>
-          member.displayName === name ||
-          member.displayName === nick ||
-          member.displayName
-            .toLowerCase()
-            .match(new RegExp(`.*${name.toLowerCase()}.*`)) ||
-          member.displayName
-            .toLowerCase()
-            .match(new RegExp(`.*${nick.toLowerCase()}.*`))
-      );
+      name = name.toLowerCase().trim();
+      nick = nick.toLowerCase().trim();
 
-      if (!found) {
+      const member = this.guild!.members.cache.find((member) => {
+        const displayName = member.displayName.toLowerCase().trim();
+        this.debug(
+          `Matching ${displayName}:${name}/${nick} ${
+            displayName.includes(name) || displayName.includes(nick)
+          }`
+        );
+        return displayName.includes(name) || displayName.includes(nick);
+      });
+
+      if (!member) {
         res.status(404).json({ answer: 0 }).end();
         this.error(`0 users found with name "${name}" or nick ${nick}.`);
       } else {
         res
           .status(200)
-          .json({ name: found.displayName, nick: found.nickname, id: found.id })
+          .json({
+            name: member.displayName,
+            nick: member.nickname,
+            id: member.id,
+          })
           .end();
         this.info(
-          `Success matched ${found.displayName} (${found.id}) to ${nick} (${name})`
+          `Success matched ${member.displayName} (${member.id}) to ${nick} (${name})`
         );
       }
     });
