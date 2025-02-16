@@ -7,11 +7,12 @@ import {
   PresenceData,
 } from "discord.js";
 import express, { Express } from "express";
-import Logger from "./util/Logger";
+import Logger from "@vertikarl/ts-logger";
 import fs from "fs/promises";
 import path from "path";
 import { version as VERSION } from "./version";
 import { Settings, MuteRequest } from "./types";
+import bcrypt from "bcryptjs";
 
 const SETTINGS_PATH = path.join(__dirname, "config.json");
 
@@ -44,6 +45,23 @@ export default class TTTMuter extends Logger {
     this.debug("loading settings");
     return new Promise(async (resolve, reject) => {
       let exists = true;
+      let password;
+      this.debug("ARGS", process.argv);
+      if (process.argv.length > 2 && process.argv.includes("-p")) {
+        this.debug("Trying to handle provided password with p flag");
+        const passwordProvided = process.argv.findIndex((value, index, obj) => {
+          return value === "-p";
+        });
+
+        if (passwordProvided !== -1) {
+          const passwordIndex = passwordProvided + 1;
+          if (process.argv.length > passwordIndex) {
+            password = process.argv[passwordIndex];
+            this.info("Provided password", password);
+            password = bcrypt.hashSync(password, 10);
+          }
+        }
+      }
 
       try {
         const a = await fs.stat(SETTINGS_PATH);
@@ -53,21 +71,34 @@ export default class TTTMuter extends Logger {
 
       if (!exists) {
         this.debug("writing file");
-        await fs.writeFile(
+        let settings = DEFAULT_SETTINGS;
+        this.warn(
           SETTINGS_PATH,
-          JSON.stringify(DEFAULT_SETTINGS, null, 4)
+          "does not exist, creating...\n",
+          "If this is your first time running this bot, please fill out the generated config.json file."
         );
-        this.log(
-          SETTINGS_PATH,
-          "does not exist, creating... Is this your first time running this app?"
-        );
+        if (password) {
+          settings.DTTT_API_KEY = password;
+        }
+        await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 4));
         reject();
         return;
       } else {
         this.debug("found file");
         try {
           const file = await fs.readFile(SETTINGS_PATH, "utf-8");
-          this.settings = JSON.parse(file);
+          let settings = JSON.parse(file);
+          if (password) {
+            this.warn(
+              "Password provided even though file already exists, changing password!"
+            );
+            settings.DTTT_API_KEY = password;
+            await fs.writeFile(
+              SETTINGS_PATH,
+              JSON.stringify(settings, null, 4)
+            );
+          }
+          this.settings = settings;
           resolve();
           return;
         } catch (err) {
@@ -136,7 +167,7 @@ export default class TTTMuter extends Logger {
     client.on("ready", () => {
       if (!client?.user) return;
 
-      this.log(`Logged in as ${client.user.tag}`);
+      this.info(`Logged in as ${client.user.tag}`);
 
       this.updateRPC();
     });
@@ -156,7 +187,7 @@ export default class TTTMuter extends Logger {
     this.routes();
 
     this.server = this.app.listen(this.settings.PORT, () => {
-      this.log(`Bot endpoint is running on port ${this.settings?.PORT}`);
+      this.info(`Bot endpoint is running on port ${this.settings?.PORT}`);
     });
   }
 
@@ -167,7 +198,7 @@ export default class TTTMuter extends Logger {
     this.app.use(express.json({ limit: "10kb" }));
     this.app.use(express.urlencoded({ extended: true })); // support encoded bodies (required)
 
-    this.app.use("/", (req, res, next) => {
+    this.app.use("/", async (req, res, next) => {
       this.debug(`[${req.method}] ${req.path}`);
       this.debug("[HEADERS]", req.headers);
       this.debug("[BODY]", req.body);
@@ -179,13 +210,19 @@ export default class TTTMuter extends Logger {
       }
 
       if (
-        req.headers.authorization === `Basic ${this.settings?.DTTT_API_KEY}`
+        // check if the user is authenticated with either a plaintext DTTT API key or a hashed DTTT API key
+        req.headers.authorization &&
+        (req.headers.authorization === `Basic ${this.settings?.DTTT_API_KEY}` ||
+          (await bcrypt.compare(
+            req.headers.authorization.split("Basic ")[1],
+            this.settings!.DTTT_API_KEY
+          )))
       ) {
         next();
         return;
       }
 
-      this.log(
+      this.info(
         `${req.ip} tried to request but was not authorized! (${req.headers.authorization})`
       );
 
@@ -199,7 +236,7 @@ export default class TTTMuter extends Logger {
     });
 
     this.app.get("/id", (req, res, next) => {
-      const { name, nick } = req.query;
+      let { name, nick } = req.query;
 
       if (typeof name !== "string" || typeof nick !== "string") {
         res.status(400).end();
@@ -207,28 +244,33 @@ export default class TTTMuter extends Logger {
         return;
       }
 
-      const found = this.guild!.members.cache.find(
-        (member) =>
-          member.displayName === name ||
-          member.displayName === nick ||
-          member.displayName
-            .toLowerCase()
-            .match(new RegExp(`.*${name.toLowerCase()}.*`)) ||
-          member.displayName
-            .toLowerCase()
-            .match(new RegExp(`.*${nick.toLowerCase()}.*`))
-      );
+      name = name.toLowerCase().trim();
+      nick = nick.toLowerCase().trim();
 
-      if (!found) {
+      const member = this.guild!.members.cache.find((member) => {
+        const displayName = member.displayName.toLowerCase().trim();
+        this.debug(
+          `Matching ${displayName}:${name}/${nick} ${
+            displayName.includes(name) || displayName.includes(nick)
+          }`
+        );
+        return displayName.includes(name) || displayName.includes(nick);
+      });
+
+      if (!member) {
         res.status(404).json({ answer: 0 }).end();
         this.error(`0 users found with name "${name}" or nick ${nick}.`);
       } else {
         res
           .status(200)
-          .json({ name: found.displayName, nick: found.nickname, id: found.id })
+          .json({
+            name: member.displayName,
+            nick: member.nickname,
+            id: member.id,
+          })
           .end();
-        this.log(
-          `Success matched ${found.displayName} (${found.id}) to ${nick} (${name})`
+        this.info(
+          `Success matched ${member.displayName} (${member.id}) to ${nick} (${name})`
         );
       }
     });
@@ -274,7 +316,7 @@ export default class TTTMuter extends Logger {
         }
       }
       res.status(200).json({ success: true }).end();
-      this.log(`[Success]`);
+      this.info(`[Success]`);
       return;
     });
 
@@ -319,12 +361,12 @@ export default class TTTMuter extends Logger {
         }
       }
       res.status(200).json({ success: true }).end();
-      this.log(`[Success]`);
+      this.info(`[Success]`);
       return;
     });
 
     if (this.settings?.ENABLE_LEGACY_BACKEND) {
-      this.log("Loading legacy routes");
+      this.info("Loading legacy routes");
       this.app.get("/", async (req, res, next) => {
         this.warn("Hitting legacy backend");
         let params: any | undefined;
@@ -372,7 +414,7 @@ export default class TTTMuter extends Logger {
               return;
             } else {
               res.status(200).json({ tag: found.displayName, id: found.id });
-              this.log(
+              this.info(
                 "[LegacyConnect][Success]",
                 `Connecting ${found.displayName} (${found.id})`
               );
@@ -386,12 +428,12 @@ export default class TTTMuter extends Logger {
               debugMode: this.debug,
               discordGuild: this.guild?.id,
             });
-            this.log("[LegacySync][Request]", params);
+            this.info("[LegacySync][Request]", params);
             return;
           }
           case "keep_alive": {
             res.json({ success: true });
-            this.log("[LegacyKeepAlive][Request]", params);
+            this.info("[LegacyKeepAlive][Request]", params);
             break;
           }
           case "mute": {
@@ -420,7 +462,7 @@ export default class TTTMuter extends Logger {
                 mute ? "dead players can't talk!" : undefined
               );
               res.status(200).json({ success: true });
-              this.log(
+              this.info(
                 `[LegacyMute][Discord:SetMute][Success]`,
                 `${mute ? "Muted" : "Unmuted"} ${id}`
               );
