@@ -2,19 +2,43 @@ import { Server } from "http";
 import {
   ActivityType,
   Client,
+  Events,
   GatewayIntentBits,
   Guild,
   PresenceData,
+  REST,
+  RESTPostAPIChatInputApplicationCommandsJSONBody,
+  Routes,
 } from "discord.js";
 import express, { Express } from "express";
 import Logger from "@vertikarl/ts-logger";
 import fs from "fs/promises";
 import path from "path";
 import { version as VERSION } from "./version";
-import { Settings, MuteRequest } from "./types";
 import bcrypt from "bcryptjs";
+import AuthRoute from "./routes/auth";
+import IdRoute from "./routes/id";
+import MuteRoute from "./routes/mute";
+import DeafenRoute from "./routes/deafen";
+import LegacyRoutes from "./routes/legacy";
+import InviteCommand from "./commands/invite";
+import Command from "./Command";
 
 const SETTINGS_PATH = path.join(__dirname, "config.json");
+
+export interface Settings {
+  DTTT_API_KEY: string;
+  GUILD_ID: string;
+  PORT: number;
+  DISCORD_TOKEN: string;
+  DISCORD_CLIENT_ID?: string;
+  ADVERTISE_STREAM: string;
+  ENABLE_LEGACY_BACKEND: boolean;
+  SERVER_ADDRESS?: string;
+  SERVER_PORT?: number;
+  commands: Map<string, any>;
+  LISTEN_ADDRESS?: string;
+}
 
 const DEFAULT_SETTINGS: Settings = {
   DTTT_API_KEY: "",
@@ -23,32 +47,37 @@ const DEFAULT_SETTINGS: Settings = {
   DISCORD_TOKEN: "",
   ADVERTISE_STREAM: "https://twitch.tv/vertiKarl",
   ENABLE_LEGACY_BACKEND: true,
+  commands: new Map<string, any>(),
 };
 
-export default class TTTMuter extends Logger {
+const DEFAULT_COMMANDS = [new InviteCommand()];
+const LOGGER = new Logger("🎮🔪", true);
+
+export default class TTTMuter {
   name = "TTT Muter";
   description = "Mutes People.";
-  emoji = "🎮🔪";
 
   client?: Client;
   guild?: Guild;
   app?: Express;
   server?: Server;
   settings?: Settings;
+  commands: Map<string, Command> = new Map(
+    DEFAULT_COMMANDS.map((cmd) => [cmd.name, cmd])
+  );
 
   constructor() {
-    super();
     this.init();
   }
 
   async loadSettings(): Promise<void> {
-    this.debug("loading settings");
+    LOGGER.debug("loading settings");
     return new Promise(async (resolve, reject) => {
       let exists = true;
       let password;
-      this.debug("ARGS", process.argv);
+      LOGGER.debug("ARGS", process.argv);
       if (process.argv.length > 2 && process.argv.includes("-p")) {
-        this.debug("Trying to handle provided password with p flag");
+        LOGGER.debug("Trying to handle provided password with p flag");
         const passwordProvided = process.argv.findIndex((value, index, obj) => {
           return value === "-p";
         });
@@ -57,22 +86,22 @@ export default class TTTMuter extends Logger {
           const passwordIndex = passwordProvided + 1;
           if (process.argv.length > passwordIndex) {
             password = process.argv[passwordIndex];
-            this.info("Provided password", password);
+            LOGGER.info("Provided password", password);
             password = bcrypt.hashSync(password, 10);
           }
         }
       }
 
       try {
-        const a = await fs.stat(SETTINGS_PATH);
+        await fs.stat(SETTINGS_PATH);
       } catch (err) {
         exists = false;
       }
 
       if (!exists) {
-        this.debug("writing file");
+        LOGGER.debug("writing file");
         let settings = DEFAULT_SETTINGS;
-        this.warn(
+        LOGGER.warn(
           SETTINGS_PATH,
           "does not exist, creating...\n",
           "If this is your first time running this bot, please fill out the generated config.json file."
@@ -84,12 +113,12 @@ export default class TTTMuter extends Logger {
         reject();
         return;
       } else {
-        this.debug("found file");
+        LOGGER.debug("found file");
         try {
           const file = await fs.readFile(SETTINGS_PATH, "utf-8");
           let settings = JSON.parse(file);
           if (password) {
-            this.warn(
+            LOGGER.warn(
               "Password provided even though file already exists, changing password!"
             );
             settings.DTTT_API_KEY = password;
@@ -98,16 +127,49 @@ export default class TTTMuter extends Logger {
               JSON.stringify(settings, null, 4)
             );
           }
+          if (typeof settings.commands === "undefined")
+            settings.commands = DEFAULT_SETTINGS.commands;
+          else {
+            settings.commands = new Map(Object.entries(settings.commands));
+          }
           this.settings = settings;
           resolve();
           return;
         } catch (err) {
-          this.error("Failed opening", SETTINGS_PATH);
+          LOGGER.error("Failed opening", SETTINGS_PATH, err);
           reject();
           return;
         }
       }
     });
+  }
+
+  async saveSettings() {
+    try {
+      await fs.stat(SETTINGS_PATH);
+    } catch (err) {
+      LOGGER.error(
+        "Couldn't save settings, file either does not exist or permission denied."
+      );
+      return;
+    }
+
+    if (!this.settings) {
+      LOGGER.error("Settings went missing!");
+      return;
+    }
+    // this might look wonky but is need to create a deep copy of the settings
+    // and allow writing settings to disk without changing the runtime object
+    const settings: any = JSON.parse(JSON.stringify(this.settings));
+    settings.commands = Object.fromEntries(this.settings.commands);
+
+    fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 4))
+      .then(() => {
+        LOGGER.info("Settings successfully saved to disk!");
+      })
+      .catch((err) => {
+        LOGGER.error("Couldn't save settings", err);
+      });
   }
 
   checkSettings() {
@@ -140,36 +202,113 @@ export default class TTTMuter extends Logger {
         {
           name: `TTT-Muter ${VERSION}`,
           type: ActivityType.Streaming,
-          url: this.settings?.ADVERTISE_STREAM,
+          url:
+            this.settings?.ADVERTISE_STREAM ||
+            DEFAULT_SETTINGS.ADVERTISE_STREAM,
         },
       ],
     };
 
-    this.debug("Updating rich presence to", presence);
+    LOGGER.debug("Updating rich presence");
 
     this.client.user.setPresence(presence);
   }
 
   async execute() {
     if (!this.settings || !this.checkSettings()) {
-      this.error(
-        "\nPlease fill out the config.json!\nIf this error persists, try deleting config.json and let it regenerate."
+      throw new Error(
+        "Please fill out the config.json!\nIf this error persists, try deleting config.json and let it regenerate."
       );
-      return;
     }
 
     const client = new Client({
-      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMembers,
+      ],
     });
 
     this.client = client;
 
-    client.on("ready", () => {
+    client.on("ready", async () => {
       if (!client?.user) return;
 
-      this.info(`Logged in as ${client.user.tag}`);
+      await this.initCommands(); // only do this once in production
+
+      LOGGER.info(`Logged in as ${client.user.tag}`);
 
       this.updateRPC();
+    });
+
+    client.on(Events.InteractionCreate, async (interaction) => {
+      if (!interaction.isChatInputCommand()) return;
+
+      if (!this.settings) {
+        interaction.reply("Sorry something went wrong!");
+        LOGGER.error(
+          "[Interaction]",
+          "Canceled interaction as settings went missing!"
+        );
+        return;
+      }
+
+      await interaction.deferReply();
+
+      const cmd = this.commands.get(interaction.commandName);
+      if (!cmd) {
+        await interaction.reply(
+          `Command ${interaction.commandName} does not exist!`
+        );
+      } else {
+        const savedSettings = this.settings.commands.get(cmd.name);
+        if (cmd.settings && savedSettings) {
+          cmd.settings = JSON.parse(JSON.stringify(savedSettings));
+        }
+
+        if (cmd.permissions.length > 0) {
+          if (!interaction.memberPermissions?.has(cmd.permissions)) {
+            return interaction.editReply(
+              "Sorry but you do not have the permissions to execute this command!"
+            );
+          }
+        }
+
+        cmd
+          .execute({
+            interaction,
+            logger: LOGGER,
+            client,
+            serverAddress: this.settings.SERVER_ADDRESS,
+            serverPort: this.settings.SERVER_PORT,
+          })
+          .then(() => {
+            LOGGER.debug("cmd.settings", cmd.settings);
+            LOGGER.debug("savedSettings", savedSettings);
+            if (
+              cmd.settings &&
+              JSON.stringify(cmd.settings) != JSON.stringify(savedSettings)
+            ) {
+              LOGGER.info(
+                `Command ${cmd.name} changed settings, saving to disk.`
+              );
+
+              if (!this.settings) {
+                LOGGER.error(
+                  "Settings went missing! Abort saving command settings."
+                );
+                return;
+              }
+
+              this.settings.commands.set(cmd.name, cmd.settings);
+              LOGGER.debug(this.settings.commands);
+              this.saveSettings();
+            }
+          })
+          .catch((err) => {
+            LOGGER.error("Something went wrong when executing", cmd.name, err);
+          });
+      }
     });
 
     await client.login(this.settings.DISCORD_TOKEN);
@@ -178,312 +317,90 @@ export default class TTTMuter extends Logger {
 
     this.guild = this.client.guilds.cache.get(this.settings.GUILD_ID);
     if (!this.guild) {
-      this.error("Guild not found!");
-      return;
+      throw new Error("Guild not found!");
     }
 
     this.app = express();
 
     this.routes();
 
-    this.server = this.app.listen(this.settings.PORT, () => {
-      this.info(`Bot endpoint is running on port ${this.settings?.PORT}`);
-    });
+    this.server = this.app.listen(
+      this.settings.PORT,
+      this.settings.LISTEN_ADDRESS || "",
+      () => {
+        LOGGER.info(`Bot endpoint is running on port ${this.settings?.PORT}`);
+        if (this.settings?.LISTEN_ADDRESS)
+          LOGGER.info(
+            `Listening on interface with ip ${this.settings.LISTEN_ADDRESS}`
+          );
+        else
+          LOGGER.warn(
+            `\nListening on all interfaces\n→ consider restricting access via the option "LISTEN_ADDRESS" in your config.json!`
+          );
+      }
+    );
   }
 
   routes() {
-    if (!this.app) return;
-    this.debug("Initializing routes");
+    if (!this.app || !this.settings || !this.guild) return;
+    LOGGER.debug("Initializing routes");
 
     this.app.use(express.json({ limit: "10kb" }));
     this.app.use(express.urlencoded({ extended: true })); // support encoded bodies (required)
 
-    this.app.use("/", async (req, res, next) => {
-      this.debug(`[${req.method}] ${req.path}`);
-      this.debug("[HEADERS]", req.headers);
-      this.debug("[BODY]", req.body);
+    this.app.use("/", AuthRoute(LOGGER, this.settings.DTTT_API_KEY));
 
-      if (!this.guild) {
-        res.status(500).end();
-        this.error("Guild is not set!");
-        return;
-      }
+    this.app.use("/id", IdRoute(LOGGER, this.guild));
 
-      if (
-        // check if the user is authenticated with either a plaintext DTTT API key or a hashed DTTT API key
-        req.headers.authorization &&
-        (req.headers.authorization === `Basic ${this.settings?.DTTT_API_KEY}` ||
-          (await bcrypt.compare(
-            req.headers.authorization.split("Basic ")[1],
-            this.settings!.DTTT_API_KEY
-          )))
-      ) {
-        next();
-        return;
-      }
+    this.app.use("/mute", MuteRoute(LOGGER, this.guild));
 
-      this.info(
-        `${req.ip} tried to request but was not authorized! (${req.headers.authorization})`
-      );
-
-      res
-        .status(401)
-        .json({
-          errorId: "AUTHORIZATION_MISMATCH",
-          errorMsg: "Authorization mismatch",
-        })
-        .end();
-    });
-
-    this.app.get("/id", (req, res, next) => {
-      let { name, nick } = req.query;
-
-      if (typeof name !== "string" || typeof nick !== "string") {
-        res.status(400).end();
-        this.error("Invalid request, parameters missing.");
-        return;
-      }
-
-      name = name.toLowerCase().trim();
-      nick = nick.toLowerCase().trim();
-
-      const member = this.guild!.members.cache.find((member) => {
-        const displayName = member.displayName.toLowerCase().trim();
-        this.debug(
-          `Matching ${displayName}:${name}/${nick} ${
-            displayName.includes(name) || displayName.includes(nick)
-          }`
-        );
-        return displayName.includes(name) || displayName.includes(nick);
-      });
-
-      if (!member) {
-        res.status(404).json({ answer: 0 }).end();
-        this.error(`0 users found with name "${name}" or nick ${nick}.`);
-      } else {
-        res
-          .status(200)
-          .json({
-            name: member.displayName,
-            nick: member.nickname,
-            id: member.id,
-          })
-          .end();
-        this.info(
-          `Success matched ${member.displayName} (${member.id}) to ${nick} (${name})`
-        );
-      }
-    });
-
-    this.app.post("/mute", async (req, res, next) => {
-      let body: MuteRequest | MuteRequest[];
-      try {
-        body = req.body;
-      } catch (err) {
-        this.error("Couldn't parse request!", err);
-        res.status(500).end();
-        return;
-      }
-
-      if (!Array.isArray(body)) {
-        body = [body];
-      }
-
-      for (const { id, status } of body) {
-        if (id && typeof status === "boolean") {
-          for (let i = 0; i < id.length; i++) {
-            if (isNaN(Number(id[i]))) {
-              res.status(400).end();
-              this.warn("Invalid request received");
-              return;
-            }
-          }
-          try {
-            const member = await this.guild!.members.fetch(id);
-            await member.voice.setMute(
-              status,
-              status ? "dead players can't talk!" : undefined
-            );
-          } catch (err) {
-            res.status(500).end();
-            this.error("Couldn't resolve id", id);
-            return;
-          }
-        } else {
-          this.error("Invalid request");
-          res.status(400).end();
-          return;
-        }
-      }
-      res.status(200).json({ success: true }).end();
-      this.info(`[Success]`);
-      return;
-    });
-
-    this.app.post("/deafen", async (req, res, next) => {
-      let body: MuteRequest | MuteRequest[];
-      try {
-        body = req.body;
-      } catch (err) {
-        this.error("Couldn't parse request!", err);
-        res.status(500).end();
-        return;
-      }
-
-      if (!Array.isArray(body)) {
-        body = [body];
-      }
-
-      for (const { id, status } of body) {
-        if (id && typeof status === "boolean") {
-          for (let i = 0; i < id.length; i++) {
-            if (isNaN(Number(id[i]))) {
-              res.status(400).end();
-              this.warn("Invalid request received");
-              return;
-            }
-          }
-          try {
-            const member = await this.guild!.members.fetch(id);
-            await member.voice.setDeaf(
-              status,
-              status ? "dead players can't hear!" : undefined
-            );
-          } catch (err) {
-            res.status(500).end();
-            this.error("Couldn't resolve id", id);
-            return;
-          }
-        } else {
-          this.error("Invalid request");
-          res.status(400).end();
-          return;
-        }
-      }
-      res.status(200).json({ success: true }).end();
-      this.info(`[Success]`);
-      return;
-    });
+    this.app.use("/deafen", DeafenRoute(LOGGER, this.guild));
 
     if (this.settings?.ENABLE_LEGACY_BACKEND) {
-      this.info("Loading legacy routes");
-      this.app.get("/", async (req, res, next) => {
-        this.warn("Hitting legacy backend");
-        let params: any | undefined;
-        try {
-          if (typeof req.headers.req !== "string") {
-            res.status(400).end();
-            this.debug("Received invalid request");
-            return;
-          }
-          if (typeof req.headers.params === "string") {
-            params = JSON.parse(req.headers.params);
-          }
-        } catch (err) {
-          res.status(500).end();
-          this.debug("Received invalid request", err);
-          return;
-        }
+      LOGGER.info("Loading legacy routes");
+      this.app.use("/legacy", LegacyRoutes(LOGGER, this.guild, VERSION));
+    }
+  }
 
-        this.debug("REQUEST", req.headers.req);
+  async initCommands() {
+    if (!this.app || !this.settings) return;
+    LOGGER.debug("Initializing commands");
+    if (!this.settings.DISCORD_CLIENT_ID) {
+      LOGGER.warn("No Discord client id provided, not adding commands...");
+      return;
+    }
 
-        switch (req.headers.req) {
-          case "connect": {
-            if (!params.tag || typeof params.tag !== "string") {
-              res.status(400).end();
-              this.error("no tag!");
-              return;
-            }
+    // Construct and prepare an instance of the REST module
+    const rest = new REST().setToken(this.settings.DISCORD_TOKEN);
+    const body: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
 
-            const tag = (params.tag as String).toLowerCase();
+    this.commands.forEach(async (cmd) => {
+      LOGGER.debug("Loading command", cmd.name);
+      body.push(cmd.data.toJSON());
+    });
 
-            const found = this.guild!.members.cache.find(
-              (member) =>
-                member.displayName === tag ||
-                member.displayName
-                  .toLowerCase()
-                  .match(new RegExp(`.*${tag.toLowerCase()}.*`))
-            );
+    try {
+      LOGGER.info(
+        `Started refreshing ${this.commands.size} application (/) commands.`
+      );
 
-            if (!found) {
-              res.status(404).json({ answer: 0 });
-              this.error(
-                "[LegacyConnect][Error]",
-                `0 users found with tag "${tag}".`
-              );
-              return;
-            } else {
-              res.status(200).json({ tag: found.displayName, id: found.id });
-              this.info(
-                "[LegacyConnect][Success]",
-                `Connecting ${found.displayName} (${found.id})`
-              );
-              return;
-            }
-          }
-          case "sync": {
-            res.json({
-              success: true,
-              version: VERSION,
-              debugMode: this.debug,
-              discordGuild: this.guild?.id,
-            });
-            this.info("[LegacySync][Request]", params);
-            return;
-          }
-          case "keep_alive": {
-            res.json({ success: true });
-            this.info("[LegacyKeepAlive][Request]", params);
-            break;
-          }
-          case "mute": {
-            const { id, mute } = params;
+      // The put method is used to fully refresh all commands in the guild with the current set
+      const data = await rest.put(
+        Routes.applicationGuildCommands(
+          this.settings.DISCORD_CLIENT_ID,
+          this.settings.GUILD_ID
+        ),
+        { body }
+      );
 
-            if (typeof id !== "string" || typeof mute !== "boolean") {
-              res
-                .status(400)
-                .json({
-                  success: false,
-                  errorId: "INVALID_PARAMS",
-                  errorMsg: "ID or Mute value missing",
-                })
-                .end();
-              this.error(
-                "[LegacyMute][Missing Params]",
-                `id: "${id}" (${typeof id}), mute: "${mute}" (${typeof mute})`
-              );
-              return;
-            }
-
-            try {
-              const member = await this.guild!.members.fetch(id);
-              await member.voice.setMute(
-                mute,
-                mute ? "dead players can't talk!" : undefined
-              );
-              res.status(200).json({ success: true });
-              this.info(
-                `[LegacyMute][Discord:SetMute][Success]`,
-                `${mute ? "Muted" : "Unmuted"} ${id}`
-              );
-            } catch (err) {
-              res
-                .status(500)
-                .json({
-                  success: false,
-                  errorId: "DISCORD_ERROR",
-                  errorMsg: err,
-                })
-                .end();
-              this.error(
-                `[LegacyMute][Discord:SetMute][Error]`,
-                `${mute ? "Mute" : "Unmute"}: ${id} - ${err}`
-              );
-            }
-            break;
-          }
-        }
-      });
+      LOGGER.info(
+        `Successfully reloaded ${
+          (data as any).length || 0
+        } application (/) commands.`
+      );
+    } catch (error) {
+      // And of course, make sure you catch and log any errors!
+      LOGGER.error(error, (error as any).requestBody.json);
     }
   }
 }

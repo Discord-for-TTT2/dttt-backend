@@ -352,8 +352,8 @@
     "@types/node" "*"
 
 "@vertikarl/ts-logger@https://github.com/vertiKarl/ts-logger":
-  version "1.0.0"
-  resolved "https://github.com/vertiKarl/ts-logger#2b234d5e625210bf36f3abc581bef65c54694c97"
+  version "1.2.0"
+  resolved "https://github.com/vertiKarl/ts-logger#e41fdaeb145b8d3c8bf22f5515d884d1c5741d33"
 
 "@vladfrangu/async_event_emitter@^2.2.4", "@vladfrangu/async_event_emitter@^2.4.6":
   version "2.4.6"
